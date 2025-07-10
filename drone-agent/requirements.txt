@@ -1,0 +1,4 @@
+# 드론 에이전트를 위한 필수 패키지들
+websockets>=11.0.3      # WebSocket 클라이언트 통신
+pymavlink>=2.4.37       # MAVLink 프로토콜 지원
+asyncio-mqtt>=0.13.0    # 비동기 MQTT 클라이언트 (선택사항)
