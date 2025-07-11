@@ -192,6 +192,16 @@ class DroneAgent:
                     self.drone_status["roll"] = msg.roll
                     self.drone_status["pitch"] = msg.pitch
                     self.drone_status["yaw"] = msg.yaw
+
+                elif msg.get_type() == 'STATUSTEXT':
+                    logger.info(f"Severity: {msg.severity}, Text: {msg.text}")
+
+                
+                    
+                
+
+                    
+
                     
         except Exception as e:
             logger.error(f"드론 상태 업데이트 오류: {e}")
@@ -278,7 +288,7 @@ class DroneAgent:
         """
         if not self.drone_connection:
             logger.error("드론이 연결되지 않았습니다.")
-            return
+            return False
             
         try:
             # 명령 전송
@@ -289,11 +299,31 @@ class DroneAgent:
                 0,  # confirmation
                 param1, param2, param3, param4, param5, param6, param7
             )
+            
             # 명령 응답 확인
-            result_msg = self.drone_connection.recv_match(type='COMMAND_ACK', blocking=True, timeout=3)
-            if( result_msg.command == cmd_code and result_msg.result == mavutil.mavlink.MAV_RESULT_ACCEPTED):
-                return True
+            result_msg = self.drone_connection.recv_match(type='COMMAND_ACK', blocking=True, timeout=5)
+            if result_msg:
+                if result_msg.command == cmd_code:
+                    if result_msg.result == mavutil.mavlink.MAV_RESULT_ACCEPTED:
+                        logger.info(f"명령 수락됨: {cmd_code}")
+                        return True
+                    else:
+                        # 결과 코드에 따른 상세 메시지
+                        result_messages = {
+                            mavutil.mavlink.MAV_RESULT_DENIED: "명령 거부됨",
+                            mavutil.mavlink.MAV_RESULT_UNSUPPORTED: "지원되지 않는 명령",
+                            mavutil.mavlink.MAV_RESULT_TEMPORARILY_REJECTED: "일시적으로 거부됨",
+                            mavutil.mavlink.MAV_RESULT_FAILED: "명령 실행 실패",
+                            mavutil.mavlink.MAV_RESULT_IN_PROGRESS: "명령 실행 중"
+                        }
+                        error_msg = result_messages.get(result_msg.result, f"알 수 없는 결과: {result_msg.result}")
+                        logger.error(f"명령 실패 ({cmd_code}): {error_msg}")
+                        return False
+                else:
+                    logger.error(f"다른 명령의 응답 수신: {result_msg.command} (예상: {cmd_code})")
+                    return False
             else:
+                logger.error(f"명령 응답 시간 초과: {cmd_code}")
                 return False
             
         except Exception as e:
@@ -344,6 +374,12 @@ class DroneAgent:
                 
             elif command == "arm&takeoff":
                 logger.info("드론 시동&이륙 명령 실행 중...")
+                
+                self.drone_connection.mav.set_mode_send(
+                    self.drone_connection.target_system,
+                    mavutil.mavlink.MAV_MODE_FLAG_CUSTOM_MODE_ENABLED,
+                    4  # GUIDED 모드로 설정 (4는 GUIDED 모드의 ID)
+                )
                
                 if not self.drone_status["armed"]:
                     arm_flag = 1 # (1:arm, 0:disarm)
@@ -375,101 +411,75 @@ class DroneAgent:
                     logger.error("이륙 명령 실패")
                     return
                 
-                
-                
             elif command == "takeoff":
                 logger.info("test : 드론 이륙 명령 실행 중...")
                 if not self.drone_status["armed"]:
                     logger.error("드론이 시동되지 않았습니다. 먼저 시동을 걸어주세요.")
                     return
+                if "altitude" in parameters:
+                    altitude = parameters["altitude"]
+                else:
+                    altitude = 5
+                result = await self.execute_command_long(
+                    mavutil.mavlink.MAV_CMD_NAV_TAKEOFF,
+                    0,  # param1: pitch
+                    0,  # param2: empty 
+                    0,  # param3: empty
+                    0,  # param4: yaw
+                    0,  # param5: latitude
+                    0,  # param6: longitude
+                    altitude  # param7: altitude
+                )
+                if result:
+                    logger.info(f"이륙 명령 성공: {altitude}m")
+                else:
+                    logger.error("이륙 명령 실패")
+                    return
                 
+            elif command == "land":
+                # 착륙 명령
+                logger.info("드론 착륙 명령 실행 중...")
+                if not self.drone_status["armed"]:
+                    logger.error("시동되지 않은 상태입니다.")
+                    return
                 
-                # if not msg:
-                #     if msg.type != mavutil.mavlink.MAV_TYPE_GCS:  # GCS 타입 제외
-                #         if msg.armed == False:
-                #             logger.error("드론이 시동되지 않았습니다. 먼저 시동을 걸어주세요.")
-                #             return
+                result = await self.execute_command_long(mavutil.mavlink.MAV_CMD_NAV_LAND, 0, 0, 0, 0, 0, 0, 0)
+                if result:
+                    logger.info("착륙 명령 성공")
+                else:
+                    logger.error("착륙 명령 실패")
+                    return
                 
+            elif command == "goto":
+                # 특정 위치로 이동
+                lat = parameters.get("latitude", 0)
+                lon = parameters.get("longitude", 0)
 
-                # if self.drone_status["armed"] == False:
-                #     logger.error("드론이 시동되지 않았습니다. 먼저 시동을 걸어주세요.")
-                #     return
+                # 고도가 없으면 현재고도로 설정
+                if "altitude" in parameters:
+                    alt = parameters["altitude"]
+                else:
+                    alt = self.drone_status["altitude"]
+                    # 현재 고도가 0이면 기본값 설정
+                    if alt <= 0:
+                        alt = 10  # 기본 고도 10m
                 
-                # # 이륙 고도 설정
-                # # 매개변수에서 고도 가져오기, 없으면 기본값 5m 사용
-                # if not parameters:
-                #     parameters = {}
-                # if "altitude" in parameters:
-                #     altitude = parameters["altitude"]
-                # else:
-                #     # 기본 고도 설정 (5m)
-                #     logger.warning("이륙 고도가 지정되지 않았습니다. 기본값 5m 사용.")
-                #     altitude = 5  # 기본 고도 5m
-                # if altitude <= 0:
-                #     logger.error("이륙 고도는 0보다 커야 합니다.")
-                #     return
+                if lat != 0 and lon != 0:
+                    logger.info(f"이동 명령 실행 중... 위치: ({lat}, {lon}, {alt})")
+                    if not self.drone_status["armed"]:
+                        logger.error("드론이 시동되지 않았습니다. 먼저 시동을 걸어주세요.")
+                        return
+                    
+                    # 새로운 이동 메서드 사용
+                    success = await self.goto_position(lat, lon, alt)
+                    if success:
+                        logger.info(f"이동 명령 성공: ({lat}, {lon}, {alt})")
+                    else:
+                        logger.error("이동 명령 실패")
+                        return
+                else:
+                    logger.error("이동 명령 오류: 위도와 경도가 필요합니다.")
                 
-                # # 비행모드 확인
-                # if self.drone_status["mode"] != "GUIDED":
-                #     # 비행모드 변경
-                #     logger.info(f"현재 모드: {self.drone_status['mode']}, GUIDED 모드로 변경합니다.")
-                #     result = await self.execute_command_long(
-                #         mavutil.mavlink.MAV_CMD_DO_SET_MODE,
-                #         mavutil.mavlink.MAV_MODE_FLAG_CUSTOM_MODE_ENABLED,
-                #         4,
-                #         0, 0, 0, 0, 0
-                #     )
-                #     if result:
-                #         logger.info("비행 모드 변경 성공: GUIDED")
-                #         # 이륙 명령 전송
-                #         result = await self.execute_command_long(
-                #             mavutil.mavlink.MAV_CMD_NAV_TAKEOFF,
-                #             0,  # param1: pitch
-                #             0,  # param2: empty
-                #             0,  # param3: empty
-                #             0,  # param4: yaw
-                #             0,  # param5: latitude
-                #             0,  # param6: longitude
-                #             altitude  # param7: altitude
-                #         )
-                #     else:
-                #         logger.error("비행 모드 변경 실패: GUIDED")
-                #         return               
-                
-                
-            # elif command == "land":
-            #     # 착륙
-            #     logger.info("착륙 명령 실행 중...")
-            #     self.drone_connection.mav.command_long_send(
-            #         self.drone_connection.target_system,
-            #         self.drone_connection.target_component,
-            #         mavutil.mavlink.MAV_CMD_NAV_LAND,
-            #         0, 0, 0, 0, 0, 0, 0, 0
-            #     )
-            #     logger.info("착륙 명령 전송 완료")
-            #     # 명령 응답 확인
-            #     await self.wait_for_command_ack(mavutil.mavlink.MAV_CMD_NAV_LAND, timeout=5)
-                
-            # elif command == "goto":
-            #     # 특정 위치로 이동
-            #     lat = parameters.get("latitude", 0)
-            #     lon = parameters.get("longitude", 0)
-            #     alt = parameters.get("altitude", 10)
-                
-            #     if lat != 0 and lon != 0:
-            #         logger.info(f"이동 명령 실행 중... 위치: ({lat}, {lon}, {alt})")
-            #         self.drone_connection.mav.mission_item_send(
-            #             self.drone_connection.target_system,
-            #             self.drone_connection.target_component,
-            #             0,
-            #             mavutil.mavlink.MAV_FRAME_GLOBAL_RELATIVE_ALT,
-            #             mavutil.mavlink.MAV_CMD_NAV_WAYPOINT,
-            #             2, 0, 0, 0, 0, 0,
-            #             lat, lon, alt
-            #         )
-            #         logger.info(f"이동 명령 전송 완료: ({lat}, {lon}, {alt})")
-            #     else:
-            #         logger.error("이동 명령 오류: 위도와 경도가 필요합니다.")
                     
             elif command == "set_mode":
                 # 비행 모드 변경
@@ -486,7 +496,25 @@ class DroneAgent:
                     logger.info(f"모드 변경 명령 전송 완료: {mode}")
                 else:
                     logger.error(f"알 수 없는 모드: {mode}")
-                    
+
+            elif command == "rtl":
+                # Return to Launch (홈으로 복귀)
+                logger.info("RTL 명령 실행 중...")
+                if not self.drone_status["armed"]:
+                    logger.error("드론이 시동되지 않았습니다. 먼저 시동을 걸어주세요.")
+                    return
+                
+                result = await self.execute_command_long(
+                    mavutil.mavlink.MAV_CMD_NAV_RETURN_TO_LAUNCH,
+                    0, 0, 0, 0, 0, 0, 0
+                )
+                
+                if result:
+                    logger.info("RTL 명령 전송 완료")
+                else:
+                    logger.error("RTL 명령 실패")
+                    return
+                                    
             # elif command == "rtl":
             #     # Return to Launch (홈으로 복귀)
             #     logger.info("RTL 명령 실행 중...")
@@ -652,6 +680,65 @@ class DroneAgent:
             logger.debug(f"모드 이름 추출 오류: {e}")
             return f"Mode({heartbeat_msg.custom_mode})"
             
+    async def goto_position(self, lat, lon, alt):
+        """
+        드론을 특정 위치로 이동시키는 메서드 (GUIDED 모드에서 사용)
+        
+        Args:
+            lat: 위도
+            lon: 경도  
+            alt: 고도
+            
+        Returns:
+            bool: 성공 여부
+        """
+        if not self.drone_connection:
+            logger.error("드론이 연결되지 않았습니다.")
+            return False
+            
+        if not self.drone_status["armed"]:
+            logger.error("드론이 시동되지 않았습니다.")
+            return False
+            
+        try:
+            # GUIDED 모드 확인/설정
+            if self.drone_status["mode"] != "GUIDED":
+                logger.info("GUIDED 모드로 변경 중...")
+                self.drone_connection.mav.set_mode_send(
+                    self.drone_connection.target_system,
+                    mavutil.mavlink.MAV_MODE_FLAG_CUSTOM_MODE_ENABLED,
+                    4  # GUIDED 모드
+                )
+                # 모드 변경 대기
+                await asyncio.sleep(1)
+            
+            # SET_POSITION_TARGET_GLOBAL_INT 메시지 전송
+            self.drone_connection.mav.set_position_target_global_int_send(
+                0,  # time_boot_ms
+                self.drone_connection.target_system,
+                self.drone_connection.target_component,
+                mavutil.mavlink.MAV_FRAME_GLOBAL_RELATIVE_ALT_INT,
+                0b0000111111111000,  # type_mask (position only)
+                int(lat * 1e7),  # lat_int (degE7)
+                int(lon * 1e7),  # lon_int (degE7)
+                alt,  # alt (meters)
+                0,  # vx
+                0,  # vy
+                0,  # vz
+                0,  # afx
+                0,  # afy
+                0,  # afz
+                0,  # yaw
+                0   # yaw_rate
+            )
+            
+            logger.info(f"위치 타겟 설정 완료: ({lat}, {lon}, {alt})")
+            return True
+            
+        except Exception as e:
+            logger.error(f"위치 이동 오류: {e}")
+            return False
+
 # 메인 실행 부분
 async def main():
     # 드론 에이전트 설정

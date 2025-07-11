@@ -323,6 +323,42 @@ class SimpleGCS:
                     success = await self.send_command(parts[1], "land")
                     if not success:
                         print("명령 전송 실패")
+
+                elif parts[0] == "goto" and len(parts) >= 4:
+                    drone_name = parts[1]
+                    latitude = float(parts[2])
+                    longitude = float(parts[3])
+                    if len(parts) == 5:
+                        parameters = {
+                            "latitude": latitude,
+                            "longitude": longitude,
+                            "altitude": float(parts[4])
+                        }
+                        print(f"이동 명령 실행 중... 드론: {drone_name}, 위치: ({latitude}, {longitude}, {float(parts[4])})")    
+                    else:
+                        parameters = {
+                            "latitude": latitude,
+                            "longitude": longitude,
+                        }
+                        print(f"이동 명령 실행 중... 드론: {drone_name}, 위치: ({latitude}, {longitude}, 현재고도)")
+
+                    goto_success = await self.send_command(drone_name, "goto", parameters)
+                    if not goto_success:
+                        print("이동 명령 전송 실패")
+                    else:
+                        print("이동 명령 전송 완료!")
+
+                elif parts[0] == "rtl" and len(parts) >= 2:
+                    drone_name = parts[1]
+                    print(f"드론 {drone_name}을(를) 자동 복귀 모드로 전환 중...")
+                    rtl_success = await self.send_command(drone_name, "rtl")
+                    if not rtl_success:
+                        print("RTL 명령 전송 실패")
+                    else:
+                        print("RTL 명령 전송 완료!")
+                        
+
+                    
                         
                 elif parts[0] == "emergency" and len(parts) >= 2:
                     # 비상 착륙 (무장 해제 + 착륙)
