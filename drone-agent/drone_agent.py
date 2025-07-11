@@ -154,20 +154,20 @@ class DroneAgent:
         try:
             # 메시지 수신 (논블로킹)
             msg = self.drone_connection.recv_match(blocking=True)
-            
             if msg:
                 # 메시지 타입별 처리
                 if msg.get_type() == 'HEARTBEAT':
-                    self.drone_status["armed"] = (msg.base_mode & mavutil.mavlink.MAV_MODE_FLAG_SAFETY_ARMED) != 0
-                    
-                    # 정확한 모드 이름 가져오기
-                    mode_name = self.get_flight_mode_name(msg)
-                    
-                    # 모드가 변경된 경우에만 로그 출력
-                    if self.drone_status["mode"] != mode_name:
-                        logger.info(f"비행 모드 변경: {self.drone_status['mode']} -> {mode_name} (custom_mode: {msg.custom_mode})")
+                    if msg.type != mavutil.mavlink.MAV_TYPE_GCS:  # GCS 타입 제외
+                        self.drone_status["armed"] = (msg.base_mode & mavutil.mavlink.MAV_MODE_FLAG_SAFETY_ARMED) != 0
                         
-                    self.drone_status["mode"] = mode_name
+                        # 정확한 모드 이름 가져오기
+                        mode_name = self.get_flight_mode_name(msg)
+                        
+                        # 모드가 변경된 경우에만 로그 출력
+                        if self.drone_status["mode"] != mode_name:
+                            logger.info(f"비행 모드 변경: {self.drone_status['mode']} -> {mode_name} (custom_mode: {msg.custom_mode})")
+                            
+                        self.drone_status["mode"] = mode_name
                     
                 elif msg.get_type() == 'SYS_STATUS':
                     self.drone_status["battery_voltage"] = msg.voltage_battery / 1000.0  # mV to V
@@ -195,7 +195,7 @@ class DroneAgent:
                     
         except Exception as e:
             logger.error(f"드론 상태 업데이트 오류: {e}")
-            
+
     async def send_status_to_server(self):
         """
         드론 상태를 서버로 전송하는 메서드
@@ -309,6 +309,8 @@ class DroneAgent:
             command: 실행할 명령
         """
 
+        logger.info(f"명령 실행 요청: {command}, 매개변수: {parameters}")
+
         try:
             if command == "arm":
                 logger.info("드론 시동 명령 실행 중...")
@@ -340,52 +342,99 @@ class DroneAgent:
                     logger.error("시동 끄기 실패")
                     return
                 
-            elif command == "takeoff":
-                logger.info("드론 이륙 명령 실행 중...")
-                if self.drone_status["armed"] == False:
-                    logger.error("드론이 시동되지 않았습니다. 먼저 시동을 걸어주세요.")
-                    return
+            elif command == "arm&takeoff":
+                logger.info("드론 시동&이륙 명령 실행 중...")
+               
+                if not self.drone_status["armed"]:
+                    arm_flag = 1 # (1:arm, 0:disarm)
+                    arm_force = 0 # (0: 안전체크, 1: 안전체크없이 강제)
+                    result = await self.execute_command_long(mavutil.mavlink.MAV_CMD_COMPONENT_ARM_DISARM,arm_flag,arm_force,0,0,0,0,0)
+                    if not result:
+                        logger.error("시동 실패")
+                        return
                 
-                # 이륙 고도 설정
-                # 매개변수에서 고도 가져오기, 없으면 기본값 5m 사용
-                if not parameters:
-                    parameters = {}
+                # 이륙명령
                 if "altitude" in parameters:
                     altitude = parameters["altitude"]
                 else:
-                    # 기본 고도 설정 (5m)
-                    logger.warning("이륙 고도가 지정되지 않았습니다. 기본값 5m 사용.")
-                    altitude = 5  # 기본 고도 5m
-                if altitude <= 0:
-                    logger.error("이륙 고도는 0보다 커야 합니다.")
+                    altitude = 5  # 기본 이륙 고도 5m
+                result = await self.execute_command_long(
+                    mavutil.mavlink.MAV_CMD_NAV_TAKEOFF,
+                    0,  # param1: pitch
+                    0,  # param2: empty 
+                    0,  # param3: empty
+                    0,  # param4: yaw
+                    0,  # param5: latitude
+                    0,  # param6: longitude
+                    altitude  # param7: altitude
+                )
+
+                if result:
+                    logger.info(f"이륙 명령 성공: {altitude}m")
+                else:
+                    logger.error("이륙 명령 실패")
                     return
                 
-                # 비행모드 확인
-                if self.drone_status["mode"] != "GUIDED":
-                    # 비행모드 변경
-                    logger.info(f"현재 모드: {self.drone_status['mode']}, GUIDED 모드로 변경합니다.")
-                    result = await self.execute_command_long(
-                        mavutil.mavlink.MAV_CMD_DO_SET_MODE,
-                        mavutil.mavlink.MAV_MODE_FLAG_CUSTOM_MODE_ENABLED,
-                        4,
-                        0, 0, 0, 0, 0
-                    )
-                    if result:
-                        logger.info("비행 모드 변경 성공: GUIDED")
-                        # 이륙 명령 전송
-                        result = await self.execute_command_long(
-                            mavutil.mavlink.MAV_CMD_NAV_TAKEOFF,
-                            0,  # param1: pitch
-                            0,  # param2: empty
-                            0,  # param3: empty
-                            0,  # param4: yaw
-                            0,  # param5: latitude
-                            0,  # param6: longitude
-                            altitude  # param7: altitude
-                        )
-                    else:
-                        logger.error("비행 모드 변경 실패: GUIDED")
-                        return               
+                
+                
+            elif command == "takeoff":
+                logger.info("test : 드론 이륙 명령 실행 중...")
+                if not self.drone_status["armed"]:
+                    logger.error("드론이 시동되지 않았습니다. 먼저 시동을 걸어주세요.")
+                    return
+                
+                
+                # if not msg:
+                #     if msg.type != mavutil.mavlink.MAV_TYPE_GCS:  # GCS 타입 제외
+                #         if msg.armed == False:
+                #             logger.error("드론이 시동되지 않았습니다. 먼저 시동을 걸어주세요.")
+                #             return
+                
+
+                # if self.drone_status["armed"] == False:
+                #     logger.error("드론이 시동되지 않았습니다. 먼저 시동을 걸어주세요.")
+                #     return
+                
+                # # 이륙 고도 설정
+                # # 매개변수에서 고도 가져오기, 없으면 기본값 5m 사용
+                # if not parameters:
+                #     parameters = {}
+                # if "altitude" in parameters:
+                #     altitude = parameters["altitude"]
+                # else:
+                #     # 기본 고도 설정 (5m)
+                #     logger.warning("이륙 고도가 지정되지 않았습니다. 기본값 5m 사용.")
+                #     altitude = 5  # 기본 고도 5m
+                # if altitude <= 0:
+                #     logger.error("이륙 고도는 0보다 커야 합니다.")
+                #     return
+                
+                # # 비행모드 확인
+                # if self.drone_status["mode"] != "GUIDED":
+                #     # 비행모드 변경
+                #     logger.info(f"현재 모드: {self.drone_status['mode']}, GUIDED 모드로 변경합니다.")
+                #     result = await self.execute_command_long(
+                #         mavutil.mavlink.MAV_CMD_DO_SET_MODE,
+                #         mavutil.mavlink.MAV_MODE_FLAG_CUSTOM_MODE_ENABLED,
+                #         4,
+                #         0, 0, 0, 0, 0
+                #     )
+                #     if result:
+                #         logger.info("비행 모드 변경 성공: GUIDED")
+                #         # 이륙 명령 전송
+                #         result = await self.execute_command_long(
+                #             mavutil.mavlink.MAV_CMD_NAV_TAKEOFF,
+                #             0,  # param1: pitch
+                #             0,  # param2: empty
+                #             0,  # param3: empty
+                #             0,  # param4: yaw
+                #             0,  # param5: latitude
+                #             0,  # param6: longitude
+                #             altitude  # param7: altitude
+                #         )
+                #     else:
+                #         logger.error("비행 모드 변경 실패: GUIDED")
+                #         return               
                 
                 
             # elif command == "land":
@@ -435,8 +484,6 @@ class DroneAgent:
                         mode_id
                     )
                     logger.info(f"모드 변경 명령 전송 완료: {mode}")
-                    # 모드 변경 결과 확인
-                    await self.wait_for_mode_change(mode, timeout=5)
                 else:
                     logger.error(f"알 수 없는 모드: {mode}")
                     
@@ -464,82 +511,7 @@ class DroneAgent:
         # logger.info(f"명령 실행 후 드론 상태 - 연결: {self.drone_status['connected']}, "
         #            f"무장: {self.drone_status['armed']}, 모드: {self.drone_status['mode']}")
     
-    async def wait_for_command_ack(self, command_id: int, timeout: float = 5.0):
-        """
-        명령 응답(ACK)을 기다리는 메서드
-        
-        Args:
-            command_id: 대기할 명령 ID
-            timeout: 대기 시간 (초)
-        """
-        start_time = asyncio.get_event_loop().time()
-        
-        while (asyncio.get_event_loop().time() - start_time) < timeout:
-            try:
-                msg = self.drone_connection.recv_match(type='COMMAND_ACK', blocking=False)
-                if msg and msg.command == command_id:
-                    if msg.result == mavutil.mavlink.MAV_RESULT_ACCEPTED:
-                        logger.info(f"명령 {command_id} 수락됨")
-                        return True
-                    else:
-                        logger.warning(f"명령 {command_id} 거부됨: {msg.result}")
-                        return False
-                        
-                await asyncio.sleep(0.1)
-                
-            except Exception as e:
-                logger.error(f"명령 응답 대기 중 오류: {e}")
-                break
-                
-        logger.warning(f"명령 {command_id} 응답 시간 초과")
-        return False
-        
-    async def wait_for_arm_status(self, target_armed: bool, timeout: float = 10.0):
-        """
-        무장 상태 변경을 기다리는 메서드
-        
-        Args:
-            target_armed: 목표 무장 상태
-            timeout: 대기 시간 (초)
-        """
-        start_time = asyncio.get_event_loop().time()
-        
-        while (asyncio.get_event_loop().time() - start_time) < timeout:
-            self.update_drone_status()
-            
-            if self.drone_status["armed"] == target_armed:
-                status_text = "무장됨" if target_armed else "무장 해제됨"
-                logger.info(f"드론 {status_text} 확인")
-                return True
-                
-            await asyncio.sleep(0.5)
-            
-        status_text = "무장" if target_armed else "무장 해제"
-        logger.warning(f"드론 {status_text} 시간 초과")
-        return False
-        
-    async def wait_for_mode_change(self, target_mode: str, timeout: float = 5.0):
-        """
-        모드 변경을 기다리는 메서드
-        
-        Args:
-            target_mode: 목표 모드
-            timeout: 대기 시간 (초)
-        """
-        start_time = asyncio.get_event_loop().time()
-        
-        while (asyncio.get_event_loop().time() - start_time) < timeout:
-            self.update_drone_status()
-            
-            if self.drone_status["mode"] == target_mode.upper():
-                logger.info(f"모드 변경 확인: {target_mode}")
-                return True
-                
-            await asyncio.sleep(0.5)
-            
-        logger.warning(f"모드 변경 시간 초과: {target_mode}")
-        return False
-            
+      
     async def status_update_loop(self):
         """
         주기적으로 드론 상태를 업데이트하고 서버로 전송하는 루프

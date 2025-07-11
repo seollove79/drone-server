@@ -3,13 +3,13 @@
 
 # 드론 설정
 DRONE_NAME = "Drone_001"                    # 드론 이름
-CONNECTION_STRING = "udp:127.0.0.1:14550"  # 드론 연결 문자열
+CONNECTION_STRING = "tcp:127.0.0.1:5762"  # 드론 연결 문자열
 
 # 서버 설정
 SERVER_URL = "ws://127.0.0.1:8765"         # 서버 WebSocket URL
 
 # 상태 업데이트 설정
-STATUS_UPDATE_INTERVAL = 1.0                # 상태 업데이트 주기 (초)
+STATUS_UPDATE_INTERVAL = 0.2                # 상태 업데이트 주기 (초)
 
 # 로그 설정
 LOG_LEVEL = "INFO"                          # 로그 레벨 (DEBUG, INFO, WARNING, ERROR)

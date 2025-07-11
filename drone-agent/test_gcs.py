@@ -284,35 +284,35 @@ class SimpleGCS:
                     
                 elif parts[0] == "disarm" and len(parts) >= 2:
                     await self.send_command(parts[1], "disarm")
+
+                elif parts[0] == "mode" and len(parts) >= 2:
+                    drone_name = parts[1]
+                    if len(parts) > 2 :
+                        mode = str(parts[2])
+                    else :
+                        mode = "GUIDE"
+                    print(f"비행모드변경중... 드론: {drone_name}, 모드: {mode}")
+                    mode_success = await self.send_command(drone_name, "set_mode", {"mode": mode})
+                    if not mode_success:
+                        print("비행모드 변경 실패")
+                    else:
+                        print("비행모드 변경 전송 완료!")
+
+                elif parts[0] == "arm&takeoff" and len(parts) >= 2:
+                    altitude = float(parts[2]) if len(parts) > 2 else 10.0
+                    drone_name = parts[1]
+                    print(f"시동&이륙 준비 중... 드론: {drone_name}, 고도: {altitude}m")
+                    takeoff_success = await self.send_command(drone_name, "arm&takeoff", {"altitude": altitude})
+                    if not takeoff_success:
+                        print("이륙 명령 전송 실패")
+                    else:
+                        print("이륙 명령 전송 완료!")
                     
                 elif parts[0] == "takeoff" and len(parts) >= 2:
                     altitude = float(parts[2]) if len(parts) > 2 else 10.0
                     drone_name = parts[1]
                     
                     print(f"이륙 준비 중... 드론: {drone_name}, 고도: {altitude}m")
-                    
-                    # 1. 먼저 GUIDED 모드로 변경
-                    print("1. GUIDED 모드로 변경 중...")
-                    mode_success = await self.send_command(drone_name, "set_mode", {"mode": "GUIDED"})
-                    if not mode_success:
-                        print("모드 변경 실패")
-                        continue
-                    
-                    # 잠시 대기
-                    await asyncio.sleep(2)
-                    
-                    # 2. 드론 무장
-                    print("2. 드론 무장 중...")
-                    arm_success = await self.send_command(drone_name, "arm")
-                    if not arm_success:
-                        print("무장 실패")
-                        continue
-                    
-                    # 잠시 대기
-                    await asyncio.sleep(3)
-                    
-                    # 3. 이륙 명령 전송
-                    print("3. 이륙 명령 전송 중...")
                     takeoff_success = await self.send_command(drone_name, "takeoff", {"altitude": altitude})
                     if not takeoff_success:
                         print("이륙 명령 전송 실패")
