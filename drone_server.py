@@ -326,8 +326,14 @@ class DroneServer:
 
 # 메인 실행 부분
 if __name__ == "__main__":
+    import os
+    
     # 드론 서버 인스턴스 생성
     server = DroneServer()
     
+    # 환경 변수에서 호스트와 포트 읽기 (Docker용)
+    host = os.getenv("HOST", "0.0.0.0")  # Docker에서는 0.0.0.0 사용
+    port = int(os.getenv("PORT", 8765))
+    
     # 비동기 이벤트 루프를 사용하여 서버 시작
-    asyncio.run(server.start())
+    asyncio.run(server.start(host, port))

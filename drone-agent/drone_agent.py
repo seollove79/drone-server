@@ -195,13 +195,6 @@ class DroneAgent:
 
                 elif msg.get_type() == 'STATUSTEXT':
                     logger.info(f"Severity: {msg.severity}, Text: {msg.text}")
-
-                
-                    
-                
-
-                    
-
                     
         except Exception as e:
             logger.error(f"드론 상태 업데이트 오류: {e}")

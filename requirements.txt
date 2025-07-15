@@ -1,0 +1,8 @@
+# WebSocket 통신을 위한 패키지
+websockets==12.0
+
+# 비동기 프로그래밍 (Python 3.7+ 표준 라이브러리이지만 명시)
+# asyncio는 표준 라이브러리이므로 별도 설치 불필요
+
+# JSON, UUID, datetime는 Python 표준 라이브러리이므로 별도 설치 불필요
+# typing도 Python 3.5+ 표준 라이브러리
