@@ -6,7 +6,7 @@ DRONE_NAME = "Drone_001"                    # 드론 이름
 CONNECTION_STRING = "tcp:127.0.0.1:5762"  # 드론 연결 문자열
 
 # 서버 설정
-SERVER_URL = "ws://127.0.0.1:8765"         # 서버 WebSocket URL (Docker의 경우 호스트 IP 사용)
+SERVER_URL = "ws://127.0.0.1:9876"         # 서버 WebSocket URL (Docker의 경우 호스트 IP 사용)
 
 # 상태 업데이트 설정
 STATUS_UPDATE_INTERVAL = 0.2                # 상태 업데이트 주기 (초)

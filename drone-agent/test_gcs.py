@@ -164,6 +164,7 @@ class SimpleGCS:
                     
                     logger.info(f"드론 상태 - {drone_name}: 배터리 {battery}% ({battery_voltage:.2f}V), "
                                f"위치 ({position.get('latitude', 0):.6f}, {position.get('longitude', 0):.6f}), "
+                               f"고도 {status.get('altitude', 0):.1f}m(절대)/{status.get('altitude_relative', 0):.1f}m(상대), "
                                f"모드 {status.get('mode', 'UNKNOWN')}")
                     
                     self._last_status[drone_name] = current_status

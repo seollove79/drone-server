@@ -306,7 +306,7 @@ class DroneServer:
             if client_id:
                 await self.unregister_client(client_id)
                 
-    async def start(self, host="127.0.0.1", port=8765):
+    async def start(self, host="127.0.0.1", port=9876):
         """
         드론 서버를 시작하는 메서드
         
@@ -315,7 +315,7 @@ class DroneServer:
         
         Args:
             host: 서버 호스트 주소 (기본값: 127.0.0.1)
-            port: 서버 포트 번호 (기본값: 8765)
+            port: 서버 포트 번호 (기본값: 9876)
         """
         # WebSocket 서버 시작
         server = await websockets.serve(self.handler, host, port)
@@ -333,7 +333,7 @@ if __name__ == "__main__":
     
     # 환경 변수에서 호스트와 포트 읽기 (Docker용)
     host = os.getenv("HOST", "0.0.0.0")  # Docker에서는 0.0.0.0 사용
-    port = int(os.getenv("PORT", 8765))
+    port = int(os.getenv("PORT", 9876))
     
     # 비동기 이벤트 루프를 사용하여 서버 시작
     asyncio.run(server.start(host, port))

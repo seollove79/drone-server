@@ -52,7 +52,8 @@ class DroneAgent:
             "satellites_visible": 0,
             "latitude": 0.0,
             "longitude": 0.0,
-            "altitude": 0.0,
+            "altitude": 0.0,           # 해수면 고도 (absolute altitude)
+            "altitude_relative": 0.0,  # 상대 고도 (relative altitude)
             "groundspeed": 0.0,
             "airspeed": 0.0,
             "heading": 0.0,
@@ -179,14 +180,20 @@ class DroneAgent:
                     self.drone_status["satellites_visible"] = msg.satellites_visible
                     self.drone_status["latitude"] = msg.lat / 1e7
                     self.drone_status["longitude"] = msg.lon / 1e7
-                    self.drone_status["altitude"] = msg.alt / 1000.0  # mm to m
+                    self.drone_status["altitude"] = msg.alt / 1000.0  # mm to m (해수면 고도)
+                    
+                elif msg.get_type() == 'GLOBAL_POSITION_INT':
+                    # 상대고도 정보 업데이트
+                    self.drone_status["latitude"] = msg.lat / 1e7
+                    self.drone_status["longitude"] = msg.lon / 1e7
+                    self.drone_status["altitude"] = msg.alt / 1000.0  # mm to m (해수면 고도)
+                    self.drone_status["altitude_relative"] = msg.relative_alt / 1000.0  # mm to m (상대 고도)
                     
                 elif msg.get_type() == 'VFR_HUD':
                     self.drone_status["groundspeed"] = msg.groundspeed
                     self.drone_status["airspeed"] = msg.airspeed
                     self.drone_status["heading"] = msg.heading
                     self.drone_status["throttle"] = msg.throttle
-                    self.drone_status["altitude"] = msg.alt
                     
                 elif msg.get_type() == 'ATTITUDE':
                     self.drone_status["roll"] = msg.roll
@@ -214,7 +221,8 @@ class DroneAgent:
                 "position": {
                     "latitude": self.drone_status["latitude"],
                     "longitude": self.drone_status["longitude"],
-                    "altitude": self.drone_status["altitude"]
+                    "altitude": self.drone_status["altitude"],
+                    "altitude_relative": self.drone_status["altitude_relative"]
                 },
                 "status": {
                     "connected": self.drone_status["connected"],
@@ -737,7 +745,7 @@ async def main():
     # 드론 에이전트 설정
     drone_name = "Drone_001"
     connection_string = "udp:127.0.0.1:14550"  # SITL 기본 포트
-    server_url = "ws://127.0.0.1:8765"
+    server_url = "ws://127.0.0.1:9876"
     
     # 드론 에이전트 생성 및 시작
     agent = DroneAgent(drone_name, connection_string, server_url)
