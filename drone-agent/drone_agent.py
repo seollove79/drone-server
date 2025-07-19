@@ -69,6 +69,16 @@ class DroneAgent:
         # 실행 중 플래그
         self.running = True
         
+        # 메시지 필터링을 위한 타임스탬프
+        self.last_message_times = {}
+        self.message_rate_limits = {
+            'GLOBAL_POSITION_INT': 0.1,  # 100ms 간격
+            'ATTITUDE': 0.1,             # 100ms 간격
+            'VFR_HUD': 0.2,              # 200ms 간격
+            'SYS_STATUS': 1.0,           # 1초 간격
+            'GPS_RAW_INT': 1.0           # 1초 간격
+        }
+        
     async def connect_to_drone(self):
         """
         드론에 MAVLink로 연결하는 메서드
@@ -144,65 +154,107 @@ class DroneAgent:
         except Exception as e:
             logger.error(f"서버 연결 실패: {e}")
             return False
+        
+    async def set_message_interval(self, message_id, interval):
+        """
+        특정 MAVLink 메시지의 전송 간격을 설정하는 메서드
+        
+        Args:
+            message_id: 메시지 ID (예: mavutil.mavlink.MAVLINK_MSG_ID_HEARTBEAT)
+            interval: 전송 간격 (초 단위)
+        """
+        if not self.drone_connection:
+            logger.error("드론이 연결되지 않았습니다.")
+            return False
+            
+        try:
+            self.drone_connection.mav.command_long_send(
+                self.drone_connection.target_system,
+                self.drone_connection.target_component,
+                mavutil.mavlink.MAV_CMD_SET_MESSAGE_INTERVAL,
+                0,  # confirmation
+                message_id,  # 메시지 ID
+                interval,  # 간격 (마이크로초 단위)
+                0, 0, 0, 0, 0
+            )
+        except Exception as e:
+            logger.error(f"메시지 간격 설정 오류: {e}")
+            return False
             
     def update_drone_status(self):
         """
-        드론으로부터 상태 정보를 수집하는 메서드
+        드론으로부터 상태 정보를 수집하는 메서드 (최적화됨)
         """
         if not self.drone_connection:
             return
-            
+        
         try:
-            # 메시지 수신 (논블로킹)
-            msg = self.drone_connection.recv_match(blocking=True)
-            if msg:
-                # 메시지 타입별 처리
-                if msg.get_type() == 'HEARTBEAT':
-                    if msg.type != mavutil.mavlink.MAV_TYPE_GCS:  # GCS 타입 제외
+            # 큐에 있는 모든 메시지를 처리 (논블로킹)
+            message_count = 0
+            max_messages_per_cycle = 50  # 한 번에 처리할 최대 메시지 수
+            
+            while message_count < max_messages_per_cycle:
+                msg = self.drone_connection.recv_match(blocking=False)
+                if not msg:
+                    break
+                    
+                message_count += 1
+                msg_type = msg.get_type()
+                
+                # 레이트 리미팅 적용
+                if not self.should_process_message(msg_type):
+                    continue
+                
+                # 중요한 메시지 타입만 로깅 (디버깅 시에만)
+                if logger.level == logging.DEBUG:
+                    if msg_type in ['HEARTBEAT', 'SYS_STATUS', 'GLOBAL_POSITION_INT']:
+                        logger.debug(f"메시지 수신: {msg_type}")
+
+                # 메시지 타입별 처리 (성능을 위해 if-elif 순서 최적화)
+                if msg_type == 'GLOBAL_POSITION_INT':
+                    # 가장 자주 오는 메시지 먼저 처리
+                    self.drone_status["latitude"] = msg.lat / 1e7
+                    self.drone_status["longitude"] = msg.lon / 1e7
+                    self.drone_status["altitude"] = msg.alt / 1000.0
+                    self.drone_status["altitude_relative"] = msg.relative_alt / 1000.0
+                    
+                elif msg_type == 'HEARTBEAT':
+                    if msg.type != mavutil.mavlink.MAV_TYPE_GCS:
                         self.drone_status["armed"] = (msg.base_mode & mavutil.mavlink.MAV_MODE_FLAG_SAFETY_ARMED) != 0
                         
-                        # 정확한 모드 이름 가져오기
                         mode_name = self.get_flight_mode_name(msg)
-                        
-                        # 모드가 변경된 경우에만 로그 출력
                         if self.drone_status["mode"] != mode_name:
-                            logger.info(f"비행 모드 변경: {self.drone_status['mode']} -> {mode_name} (custom_mode: {msg.custom_mode})")
-                            
+                            logger.info(f"비행 모드 변경: {self.drone_status['mode']} -> {mode_name}")
                         self.drone_status["mode"] = mode_name
-                    
-                elif msg.get_type() == 'SYS_STATUS':
-                    self.drone_status["battery_voltage"] = msg.voltage_battery / 1000.0  # mV to V
-                    self.drone_status["battery_current"] = msg.current_battery / 100.0 if msg.current_battery != -1 else 0.0  # cA to A
-                    self.drone_status["battery_remaining"] = msg.battery_remaining
-                    
-                elif msg.get_type() == 'GPS_RAW_INT':
-                    self.drone_status["gps_fix"] = msg.fix_type
-                    self.drone_status["satellites_visible"] = msg.satellites_visible
-                    self.drone_status["latitude"] = msg.lat / 1e7
-                    self.drone_status["longitude"] = msg.lon / 1e7
-                    self.drone_status["altitude"] = msg.alt / 1000.0  # mm to m (해수면 고도)
-                    
-                elif msg.get_type() == 'GLOBAL_POSITION_INT':
-                    # 상대고도 정보 업데이트
-                    self.drone_status["latitude"] = msg.lat / 1e7
-                    self.drone_status["longitude"] = msg.lon / 1e7
-                    self.drone_status["altitude"] = msg.alt / 1000.0  # mm to m (해수면 고도)
-                    self.drone_status["altitude_relative"] = msg.relative_alt / 1000.0  # mm to m (상대 고도)
-                    
-                elif msg.get_type() == 'VFR_HUD':
+                        
+                elif msg_type == 'VFR_HUD':
                     self.drone_status["groundspeed"] = msg.groundspeed
                     self.drone_status["airspeed"] = msg.airspeed
                     self.drone_status["heading"] = msg.heading
                     self.drone_status["throttle"] = msg.throttle
                     
-                elif msg.get_type() == 'ATTITUDE':
+                elif msg_type == 'ATTITUDE':
                     self.drone_status["roll"] = msg.roll
                     self.drone_status["pitch"] = msg.pitch
                     self.drone_status["yaw"] = msg.yaw
-
-                elif msg.get_type() == 'STATUSTEXT':
-                    logger.info(f"Severity: {msg.severity}, Text: {msg.text}")
                     
+                elif msg_type == 'SYS_STATUS':
+                    self.drone_status["battery_voltage"] = msg.voltage_battery / 1000.0
+                    self.drone_status["battery_current"] = msg.current_battery / 100.0 if msg.current_battery != -1 else 0.0
+                    self.drone_status["battery_remaining"] = msg.battery_remaining
+                    
+                elif msg_type == 'GPS_RAW_INT':
+                    self.drone_status["gps_fix"] = msg.fix_type
+                    self.drone_status["satellites_visible"] = msg.satellites_visible
+                    
+                elif msg_type == 'STATUSTEXT':
+                    # 중요한 상태 텍스트만 로깅
+                    if msg.severity <= 4:  # Emergency, Alert, Critical, Error만
+                        logger.warning(f"드론 메시지 (심각도 {msg.severity}): {msg.text}")
+                        
+            if message_count >= max_messages_per_cycle:
+                logger.debug(f"메시지 처리 제한 도달: {message_count}개 처리됨")
+                
         except Exception as e:
             logger.error(f"드론 상태 업데이트 오류: {e}")
 
@@ -230,6 +282,7 @@ class DroneAgent:
                     "mode": self.drone_status["mode"],
                     "gps_fix": self.drone_status["gps_fix"],
                     "satellites": self.drone_status["satellites_visible"],
+                    "airspeed": self.drone_status["airspeed"],
                     "groundspeed": self.drone_status["groundspeed"],
                     "heading": self.drone_status["heading"],
                     "battery_voltage": self.drone_status["battery_voltage"],
@@ -543,18 +596,24 @@ class DroneAgent:
       
     async def status_update_loop(self):
         """
-        주기적으로 드론 상태를 업데이트하고 서버로 전송하는 루프
+        주기적으로 드론 상태를 업데이트하고 서버로 전송하는 루프 (최적화됨)
         """
+        last_status_send = 0
+        status_send_interval = 1.0  # 서버 전송 간격
+        
         while self.running:
             try:
-                # 드론 상태 업데이트
+                # 드론 상태 업데이트 (더 자주 실행)
                 self.update_drone_status()
                 
-                # 서버로 상태 전송
-                await self.send_status_to_server()
-                
-                # 다음 업데이트까지 대기
-                await asyncio.sleep(self.status_update_interval)
+                # 서버로 상태 전송 (제한된 주기로)
+                current_time = asyncio.get_event_loop().time()
+                if current_time - last_status_send >= status_send_interval:
+                    await self.send_status_to_server()
+                    last_status_send = current_time
+                    
+                # 짧은 대기 시간으로 더 자주 메시지 확인
+                await asyncio.sleep(0.1)
                 
             except Exception as e:
                 logger.error(f"상태 업데이트 루프 오류: {e}")
@@ -595,6 +654,12 @@ class DroneAgent:
         if not await self.connect_to_server():
             logger.error("서버 연결 실패")
             return
+        
+      
+        await self.set_message_interval(mavutil.mavlink.MAVLINK_MSG_ID_GLOBAL_POSITION_INT, 1000000)  # 1초 간격으로 하트비트 전송
+        await self.set_message_interval(mavutil.mavlink.MAVLINK_MSG_ID_SYS_STATUS, 10000000)  # 10초 간격으로 배터리 정보 전송        
+        await self.set_message_interval(mavutil.mavlink.MAVLINK_MSG_ID_VFR_HUD, 1000000) # 1초 간격으로 VFR HUD 정보 전송
+        await self.set_message_interval(mavutil.mavlink.MAVLINK_MSG_ID_ATTITUDE, 1000000) # 1초 간격으로 자세 정보 전송
             
         # 비동기 태스크 시작
         tasks = [
@@ -739,6 +804,21 @@ class DroneAgent:
         except Exception as e:
             logger.error(f"위치 이동 오류: {e}")
             return False
+
+    def should_process_message(self, msg_type):
+        """
+        메시지 처리 여부를 결정하는 메서드 (레이트 리미팅)
+        """
+        if msg_type not in self.message_rate_limits:
+            return True
+            
+        current_time = asyncio.get_event_loop().time()
+        last_time = self.last_message_times.get(msg_type, 0)
+        
+        if current_time - last_time >= self.message_rate_limits[msg_type]:
+            self.last_message_times[msg_type] = current_time
+            return True
+        return False
 
 # 메인 실행 부분
 async def main():
