@@ -568,6 +568,31 @@ class DroneAgent:
                 else:
                     logger.error("RTL 명령 실패")
                     return
+                
+            elif command == "start_mission":
+                # 미션 시작 명령
+                logger.info("미션 시작 명령 실행 중...")
+                if not self.drone_status["armed"]:
+                    logger.error("드론이 시동되지 않았습니다. 먼저 시동을 걸어주세요.")
+                    return
+                
+                # GUIDED 모드로 설정
+                if self.drone_status["mode"] != "GUIDED":
+                    self.drone_connection.mav.set_mode_send(
+                        self.drone_connection.target_system,
+                        mavutil.mavlink.MAV_MODE_FLAG_CUSTOM_MODE_ENABLED,
+                        4  # GUIDED 모드
+                    )
+                    await asyncio.sleep(1)
+                
+                # 미션 커서를 0으로 초기화
+                self.drone_connection.mav.command_long_send(
+                    self.drone_connection.target_system,
+                    self.drone_connection.target_component,
+                    mavutil.mavlink.MAV_CMD_MISSION_START,
+                    0,  # confirmation
+                    0, 0, 0, 0, 0, 0, 0
+                )
                                     
             # elif command == "rtl":
             #     # Return to Launch (홈으로 복귀)
