@@ -593,19 +593,6 @@ class DroneAgent:
                     0,  # confirmation
                     0, 0, 0, 0, 0, 0, 0
                 )
-                                    
-            # elif command == "rtl":
-            #     # Return to Launch (홈으로 복귀)
-            #     logger.info("RTL 명령 실행 중...")
-            #     self.drone_connection.mav.command_long_send(
-            #         self.drone_connection.target_system,
-            #         self.drone_connection.target_component,
-            #         mavutil.mavlink.MAV_CMD_NAV_RETURN_TO_LAUNCH,
-            #         0, 0, 0, 0, 0, 0, 0, 0
-            #     )
-            #     logger.info("RTL 명령 전송 완료")
-            #     # 명령 응답 확인
-            #     await self.wait_for_command_ack(mavutil.mavlink.MAV_CMD_NAV_RETURN_TO_LAUNCH, timeout=5)
                 
             else:
                 logger.warning(f"알 수 없는 명령: {command}")
